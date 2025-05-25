@@ -45,7 +45,6 @@ interface OrderEmailRequestBody {
 }
 interface OrderLineItem {
   id: string;
-  name: string;
   title: string;
   quantity: number;
   shortUrl: string;
@@ -80,7 +79,7 @@ const route: RouteHandler<{ Body: OrderEmailRequestBody }> = async ({
     if (!request.body || !request.body.orderId) {
       throw new ValidationError("Missing orderId in request body");
     }
-    const { orderId } = request.body;
+    const orderId  = request.body.orderId;
 
     // Validate shop authentication
     const shopId = connections.shopify.currentShopId;
@@ -96,7 +95,7 @@ const route: RouteHandler<{ Body: OrderEmailRequestBody }> = async ({
     if (!config.MAILGUN_API_KEY) {
       throw new ConfigurationError("Mailgun API key is not configured");
     }
-    const MAILGUN_DOMAIN = 'mg.myoncare.com';
+    const MAILGUN_DOMAIN = 'sandbox97416a562f9149aaa26171af37ddc698.mailgun.org';
 
     // Fetch order data from Shopify
     let order: ShopifyOrder | null = null;
@@ -247,7 +246,6 @@ const route: RouteHandler<{ Body: OrderEmailRequestBody }> = async ({
           );
           return {
             id: normalizedLineItemId,
-            name: item.title, // Added 'name' property
             title: item.title,
             quantity: item.quantity,
             shortUrl: shortUrlEntry?.shortUrl || ''
@@ -407,17 +405,4 @@ const route: RouteHandler<{ Body: OrderEmailRequestBody }> = async ({
     });
   }
 };
-
-route.options = {
-  schema: {
-    body: {
-      type: "object",
-      required: ["orderId"],
-      properties: {
-        orderId: { type: "string" },
-      }
-    }
-  }
-};
-
 export default route;

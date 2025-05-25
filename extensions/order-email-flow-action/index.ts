@@ -1,3 +1,5 @@
+import { logger } from ".gadget/server/dist-esm";
+
 /**
  * Order Email Flow Action Extension
  * 
@@ -78,11 +80,12 @@ export default async function(input: FlowInput): Promise<object> {
     validateInput(input);
 
     // Extract order ID from input
-    const shopifyOrderGid = input.order.id;
-    const orderId = parseShopifyGid(shopifyOrderGid);
+    const orderId = input.order.id;
 
     if (!orderId) {
       throw new Error('Could not parse order ID from input');
+    }else{
+      logger.debug({orderId}, 'Parsed order ID from input');
     }
 
     // Extract shop domain from input
@@ -97,10 +100,10 @@ export default async function(input: FlowInput): Promise<object> {
       shopDomain,
       flowActionId: input.actionId || null,
     };
-
+    logger.debug({requestData},'Prepared request data for backend:', );
     // Make request to our backend endpoint
     const response = await retryWithExponentialBackoff(() =>
-      fetch('https://myoncarehub--development.gadget.app/flow-ext/order-email', {
+      fetch('https://myoncarehub.gadget.app/flow-ext/order-email', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -121,16 +124,18 @@ export default async function(input: FlowInput): Promise<object> {
 
     // Return success response to Shopify Flow
     return {
-      success: true,
-      message: responseData.message || 'Order email notification processed successfully',
+      return_value: {
+        success: true,
+      }
     };
 
   }catch (error: any) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error in order email flow action:', message);
-    return {
-      success: false,
-      message: `Error: ${message}`,
+     return {
+      return_value: {
+        success: false,
+      }
     };
   }
 }

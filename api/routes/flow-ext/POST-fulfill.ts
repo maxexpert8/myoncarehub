@@ -158,8 +158,9 @@ function isTokenValid(logger: any): boolean {
   }
   const now = Date.now();
   const isValid = now < tokenCache.expiresAt;
-  const timeRemaining = Math.floor((tokenCache.expiresAt - now) / 1000);  
-  if (isValid && timeRemaining < 30) {
+  const timeRemaining = Math.floor((tokenCache.expiresAt - now) / 1000);
+  const TOKEN_EXPIRY_BUFFER_SEC = 30;
+  if (isValid && timeRemaining < TOKEN_EXPIRY_BUFFER_SEC) {
     logger.info("Token expiring soon, marking as invalid");
     return false;
   }
@@ -178,7 +179,19 @@ async function generateDynamicToken(logger: any): Promise<string> {
     return "";
   }
 
-  const initialToken = jwt.sign({Username: "myonclinic Webshop"}, process.env.MYONCARE_API_TOKEN, { algorithm: 'HS256' });;
+  const initialToken = jwt.sign(
+  {
+    Username: "myonclinic Webshop",
+    iat: Math.floor(Date.now() / 1000),
+    aud: "myoncare-shortener",
+    iss: "shopify-flow-action"
+  },
+  process.env.MYONCARE_API_TOKEN,
+  {
+    algorithm: 'HS256',
+    expiresIn: '5m'
+  }
+);
   if (!initialToken) {
     logger.error("Failed to generate initial JWT token");
     return "";
@@ -264,8 +277,8 @@ async function processLineItem(
     const urlData: UrlData = {
       longURL: lineItem.longURL,
       firebasePatientId: lineItem.patientId || 0,
-      carepathwayId: parseInt(lineItem.pathwayId || 0),
-      caretaskId: parseInt(lineItem.taskId || 0),
+      carepathwayId: parseInt(lineItem.pathwayId || "0"),
+      caretaskId: parseInt(lineItem.taskId || "0"),
       maxClicksCount: parseInt(String(lineItem.quantity || "1")) > 0 ? parseInt(String(lineItem.quantity || "1")) : 1,
     };
 

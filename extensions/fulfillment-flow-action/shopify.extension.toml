@@ -1,4 +1,4 @@
-name = "line-item-url-shortener"
+name = "myoncare Connector"
 type = "flow_action"
 handle = "fulfillment-flow-action"
 runtime_url = "https://myoncarehub.gadget.app/flow-ext/fulfill"
@@ -19,13 +19,6 @@ title = "Line Item URL Shortener"
   description = "The Order ID"
 
   [[settings.fields]]
-  key = "orderURLs"
-  type = "single_line_text_field"
-  name = " The Order URLs"
-  required = true
-  description = "The Order URls metafield Value"
-
-  [[settings.fields]]
   key = "lineItemId"
   type = "single_line_text_field"
   name = "Line Item ID"
@@ -33,9 +26,10 @@ title = "Line Item URL Shortener"
   description = "The line Item ID"
   
   [[settings.fields]]
-  key = "lineItemQuantity"
+  key = "lineItemQuantity" 
   type = "single_line_text_field"
   name = "Line Item Quantity"
+  minimum = 1  
   required = true
   description = "The Quantity Required from this line Item"
 
@@ -45,6 +39,7 @@ title = "Line Item URL Shortener"
   name = "LongURL"
   required = true
   description = "The Pathway Long URL"
+
   
   [[settings.fields]]
   key = "patientId"

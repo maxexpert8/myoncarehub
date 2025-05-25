@@ -1,16 +1,11 @@
 "Result of URL shortening operation"
 type Result {
   success: Boolean!
-  saved: Boolean!
-  shortUrl: String
-  lineItemId: ID
-  
-  "Detailed errors (if any)"
-  errors: [UrlShortenerError!]
+  errors: [sendEmailError!]
 }
 
 "Detailed error information"
-type UrlShortenerError {
+type sendEmailError {
   "Error classification code"
   code: String!
   

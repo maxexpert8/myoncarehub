@@ -1,110 +1,214 @@
-// This is the main JavaScript file for the Shopify Flow action extension
-// It handles URL shortening for individual line items from an order
+// fulfillment-flow-action/index.ts
+import type { ShopifyFlowActionInput, ShopifyFlowActionOutput } from './types';
 
-/**
- * Main handler for the Flow action
- * @param {Object} input - The input data from Shopify Flow
- * @returns {Promise<Object>} - The response for Shopify Flow
- */
-
-interface ShopifyInput {
-  shopify: {
-    shop: {
-      domain: string;
-      id: string;
-    };
-  };
-  inputData: {
-    lineItemLongUrl?: string;
-    lineItemId?: string;
-    orderId?: string;
-    orderURLs?: any;
-    lineItemQuantity?: number;
-    patientId?: string;
-    pathwayId?: string;
-    taskId?: string;
-  };
+// Type Definitions
+interface UrlShortenerRequest {
+  url: string;
+  lineItemId: string;
+  orderId: string;
+  orderURLs: string;
+  lineItemQuantity: number;
+  patientId?: string;
+  pathwayId?: string;
+  taskId?: string;
+  source: 'shopify_flow';
+  shopDomain: string;
+  shopId: string;
 }
 
-export default async function (input: ShopifyInput) {
-  const { shopify, inputData } = input;
-  const shopDomain = shopify.shop.domain;
-  const shop_id = shopify.shop.id;
-  const { 
-    lineItemLongUrl, 
-    lineItemId, 
-    orderId,
-    orderURLs,
-    lineItemQuantity,
-    patientId,
-    pathwayId,
-    taskId
-  } = inputData;
-  const apiUrl = "https://myoncarehub.gadget.app/flow-ext/fulfill";
+interface UrlShortenerResponse {
+  success: boolean;
+  shortUrl?: string;
+  message?: string;
+  errors?: FlowError[];
+}
+
+interface FlowError {
+  code: string;
+  field?: string;
+  message: string;
+}
+
+// Constants
+const API_URL = "https://myoncarehub.gadget.app/flow-ext/fulfill";
+const REQUEST_TIMEOUT_MS = 8000;
+const MAX_RETRIES = 2;
+
+// Utilities
+const validateUrl = (url: string): boolean => {
   try {
-    if (!lineItemLongUrl) {
-      return {
-        return_value: {
-          success: false,
-          saved: false,
-          errorMessage: "Target URL is required",
-          lineItemId
-        }
-      };
-    }
-    if (!lineItemId) {
-      return {
-        return_value: {
-          success: false,
-          saved: false,
-          errorMessage: "Line item ID is required"
-        }
-      };
-    }
-    const shortenedUrlResponse = await fetch(apiUrl, {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+const createError = (code: string, message: string, field?: string): FlowError => ({
+  code,
+  field,
+  message
+});
+
+const validateInputs = (inputData: any): FlowError[] => {
+  const errors: FlowError[] = [];
+  
+  if (!inputData.lineItemLongUrl) {
+    errors.push(createError('MISSING_URL', 'Target URL is required', 'lineItemLongUrl'));
+  } else if (!validateUrl(inputData.lineItemLongUrl)) {
+    errors.push(createError('INVALID_URL', 'URL must be a valid HTTPS URL', 'lineItemLongUrl'));
+  }
+
+  if (!inputData.lineItemId) {
+    errors.push(createError('MISSING_LINE_ITEM_ID', 'Line item ID is required', 'lineItemId'));
+  }
+
+  if (!inputData.orderId) {
+    errors.push(createError('MISSING_ORDER_ID', 'Order ID is required', 'orderId'));
+  }
+
+  return errors;
+};
+
+const makeApiRequest = async (payload: UrlShortenerRequest): Promise<UrlShortenerResponse> => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-Request-Source': 'shopify_flow_action'
       },
       body: JSON.stringify({
-        properties: {
-          url: lineItemLongUrl,
-          lineItemId,
-          orderId,
-          orderURLs,
-          lineItemQuantity: lineItemQuantity || 1,
-          patientId,
-          pathwayId,
-          taskId,
-          source: 'shopify_flow',
-          shopDomain,
-          shopId: shop_id
-        }
-      })
+        properties: payload
+      }),
+      signal: controller.signal
     });
-    if (!shortenedUrlResponse.ok) {
-      const errorData = await shortenedUrlResponse.json();
-      throw new Error(`URL shortening failed: ${errorData.message || 'Unknown error'}`);
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
     }
-    const shortenedUrlData = await shortenedUrlResponse.json();
-    if (!shortenedUrlData || !shortenedUrlData.shortUrl) {
-      throw new Error('Response format invalid: Missing shortUrl in response');
-    }
-    const shortUrl = shortenedUrlData.shortUrl;
-    return {
-      return_value: {
-        success: true,
-        saved: true,
-        shortUrl,
-        lineItemId
-      }
-    };
+
+    return await response.json() as UrlShortenerResponse;
   } catch (error) {
+    clearTimeout(timeoutId);
+    throw error;
+  }
+};
+
+const withRetries = async <T>(
+  fn: () => Promise<T>,
+  maxRetries: number
+): Promise<T> => {
+  let attempt = 0;
+  let lastError: unknown;
+
+  while (attempt <= maxRetries) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      attempt++;
+      if (attempt <= maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
+    }
+  }
+
+  throw lastError;
+};
+
+// Main Handler
+export default async function (input: ShopifyFlowActionInput): Promise<ShopifyFlowActionOutput> {
+  // Safe logging (redacts sensitive fields)
+  const safeLogData = {
+    ...input.inputData,
+    patientId: input.inputData.patientId ? '[REDACTED]' : undefined,
+    pathwayId: input.inputData.pathwayId ? '[REDACTED]' : undefined
+  };
+  console.debug('Processing request:', safeLogData);
+
+  // Input Validation
+  const validationErrors = validateInputs(input.inputData);
+  if (validationErrors.length > 0) {
+    console.warn('Input validation failed:', validationErrors);
     return {
       return_value: {
         success: false,
         saved: false,
-        errorMessage: error instanceof Error ? `Error shortening URL: ${error.message}` : 'An unexpected error occurred',
+        errors: validationErrors,
+        lineItemId: input.inputData.lineItemId
+      }
+    };
+  }
+
+  try {
+    // Prepare request payload
+    const payload: UrlShortenerRequest = {
+      url: input.inputData.lineItemLongUrl!,
+      lineItemId: input.inputData.lineItemId!,
+      orderId: input.inputData.orderId!,
+      orderURLs: input.inputData.orderURLs!,
+      lineItemQuantity: input.inputData.lineItemQuantity || 1,
+      patientId: input.inputData.patientId,
+      pathwayId: input.inputData.pathwayId,
+      taskId: input.inputData.taskId,
+      source: 'shopify_flow',
+      shopDomain: input.shopify.shop.domain,
+      shopId: input.shopify.shop.id
+    };
+
+    // Execute with retries
+    const result = await withRetries<UrlShortenerResponse>(
+      () => makeApiRequest(payload),
+      MAX_RETRIES
+    );
+
+    if (!result.success || !result.shortUrl) {
+      const apiError = createError(
+        'SHORTENER_API_ERROR',
+        result.message || 'URL shortening failed',
+        'lineItemLongUrl'
+      );
+      return {
+        return_value: {
+          success: false,
+          saved: false,
+          errors: [apiError],
+          lineItemId: input.inputData.lineItemId
+        }
+      };
+    }
+
+    // Success case
+    return {
+      return_value: {
+        success: true,
+        saved: true,
+        shortUrl: result.shortUrl,
+        lineItemId: input.inputData.lineItemId
+      }
+    };
+
+  } catch (error) {
+    console.error('URL shortening failed:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    
+    return {
+      return_value: {
+        success: false,
+        saved: false,
+        errorMessage: `Failed to shorten URL: ${errorMessage}`,
+        lineItemId: input.inputData.lineItemId,
+        errors: [createError(
+          'PROCESSING_ERROR',
+          errorMessage
+        )]
       }
     };
   }
