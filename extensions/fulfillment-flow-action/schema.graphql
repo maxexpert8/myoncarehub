@@ -1,0 +1,20 @@
+"Input fields for the flow action"
+type Input {
+  orderId: String!
+  lineItemId: String!
+  lineItemQuantity: String!
+  lineItemLongUrl: String!
+  orderURLs: String!
+  patientId: String
+  pathwayId: String
+  taskId: String
+}
+
+"Return value structure"
+type Result {
+  success: Boolean!
+  saved: Boolean!
+  shortUrl: String
+  lineItemId: ID
+  errorMessage: String
+}

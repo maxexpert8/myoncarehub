@@ -1,0 +1,68 @@
+name = "line-item-url-shortener"
+type = "flow_action"
+handle = "fulfillment-flow-action"
+runtime_url = "https://myoncarehub.gadget.app/flow-ext/fulfill"
+schema = "./schema.graphql"
+api_version = "2023-07"
+return_type_ref = "Result"
+description = "Generate and store a shortened URL for individual order line items when used with Shopify Flow's 'Repeat for each line item' loop"
+
+[flow_action]
+title = "Line Item URL Shortener"
+
+[settings]
+  [[settings.fields]]
+  key = "orderId"
+  type = "single_line_text_field"
+  name = "The Order ID"
+  required = true
+  description = "The Order ID"
+
+  [[settings.fields]]
+  key = "orderURLs"
+  type = "single_line_text_field"
+  name = " The Order URLs"
+  required = true
+  description = "The Order URls metafield Value"
+
+  [[settings.fields]]
+  key = "lineItemId"
+  type = "single_line_text_field"
+  name = "Line Item ID"
+  required = true
+  description = "The line Item ID"
+  
+  [[settings.fields]]
+  key = "lineItemQuantity"
+  type = "single_line_text_field"
+  name = "Line Item Quantity"
+  required = true
+  description = "The Quantity Required from this line Item"
+
+  [[settings.fields]]
+  key = "lineItemLongUrl"
+  type = "single_line_text_field"
+  name = "LongURL"
+  required = true
+  description = "The Pathway Long URL"
+  
+  [[settings.fields]]
+  key = "patientId"
+  type = "single_line_text_field"
+  name = "Patient ID"
+  required = false
+  description = "Optional patient identifier if not included in the long URL"
+  
+  [[settings.fields]]
+  key = "pathwayId"
+  type = "single_line_text_field"
+  name = "Pathway ID"
+  required = false
+  description = "Optional pathway identifier if not included in the long URL"
+  
+  [[settings.fields]]
+  key = "taskId"
+  type = "single_line_text_field"
+  name = "Task ID"
+  required = false
+  description = "Optional task identifier if not included in the long URL"

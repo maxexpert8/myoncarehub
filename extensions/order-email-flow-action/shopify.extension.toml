@@ -1,0 +1,47 @@
+name = "order-email-flow-action"
+type = "flow_action"
+apiVersion = "2023-07"
+
+[flow_action]
+name = "Send order email"
+description = "Sends an email to the customer associated with the order"
+
+[flow_action.run]
+# This defines our target endpoint for this flow action
+gateway = "https://myoncarehub--development.gadget.app/flow-ext/order-email"
+# Timeout in milliseconds
+timeout = 60000
+
+[[flow_action.run.input.order]]
+name = "order"
+label = "Order"
+description = "The order to send the email for"
+required = true
+type = "object"
+objectBrand = "Order"
+
+[[flow_action.run.input.subject]]
+name = "subject"
+label = "Email Subject"
+description = "Subject line for the email"
+required = true
+type = "string"
+
+[[flow_action.run.input.message]]
+name = "message"
+label = "Email Message"
+description = "The content of the email to send to the customer"
+required = true
+type = "string"
+multiline = true
+
+[flow_action.run.output]
+success = "The email has been sent to the customer"
+failure = "Failed to send the email"
+
+[build]
+dev_command = "echo 'No build step required'"
+command = "echo 'No build step required'"
+
+[configuration]
+api_key = "$SHOPIFY_API_KEY"
