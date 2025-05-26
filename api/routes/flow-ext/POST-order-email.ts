@@ -1,7 +1,7 @@
 import { RouteHandler } from "gadget-server";
 import formData from "form-data";
 import Mailgun from "mailgun.js";
-import { generateOrderEmailTemplate, formatDate, formatCurrency } from "../../templates/orderEmail";
+import { generateOrderEmailTemplate, formatDate, formatCurrency } from "../../../extensions/order-email-flow-action/templates/orderEmail";
 
 // Custom error classes for better error handling
 class ValidationError extends Error {

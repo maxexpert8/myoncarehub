@@ -1,7 +1,7 @@
 name = "Send Activation Email"
 type = "flow_action"
 handle = "send-activation-email"
-runtime_url = "https://myoncarehub.gadget.app/flow-ext/order-email"
+runtime_url = "shopify"
 schema = "./schema.graphql"
 api_version = "2023-07"
 return_type_ref = "Result"
@@ -11,8 +11,15 @@ description = "Send an email to the customer for each paid individual order cont
 title = "Send Activation Email Block"
 [settings]
   [[settings.fields]]
-  key = "orderId"
-  type = "single_line_text_field"
-  name = "The Order ID"
+  key = "order"
+  type = "object"
+  name = "Order"
   required = true
-  description = "The Order ID"
+  description = "Order information"
+  
+    [[settings.fields.fields]]
+    key = "id"
+    type = "single_line_text_field"
+    name = "Order ID"
+    required = true
+    description = "The Order ID"
