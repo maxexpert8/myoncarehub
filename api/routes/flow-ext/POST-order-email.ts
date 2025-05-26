@@ -1,7 +1,8 @@
 import { RouteHandler } from "gadget-server";
 import formData from "form-data";
 import Mailgun from "mailgun.js";
-import { generateOrderEmailTemplate, formatDate, formatCurrency } from "../../../extensions/order-email-flow-action/templates/orderEmail";
+import { generateOrderEmailTemplate, formatDate, formatCurrency } from "../../templates/orderEmail";
+import { c } from "node_modules/vite/dist/node/types.d-aGj9QkWt";
 
 // Custom error classes for better error handling
 class ValidationError extends Error {
@@ -66,21 +67,10 @@ interface ShopifyOrder {
   shopId: string;
 }
 
-const route: RouteHandler<{ Body: OrderEmailRequestBody }> = async ({ 
-  request, 
-  reply, 
-  api, 
-  logger, 
-  connections, 
-  config 
-}) => {
-  try {
-    // Validate required parameters
-    if (!request.body || !request.body.orderId) {
+async function validateInputs(request: any, connections: any) {
+ if (!request.properties || !request.properties.orderId) {
       throw new ValidationError("Missing orderId in request body");
     }
-    const orderId  = request.body.orderId;
-
     // Validate shop authentication
     const shopId = connections.shopify.currentShopId;
     if (!shopId) {
@@ -90,17 +80,18 @@ const route: RouteHandler<{ Body: OrderEmailRequestBody }> = async ({
     if (!shopify) {
       throw new ShopifyError("Failed to initialize Shopify API client");
     }
-
     // Validate configuration
-    if (!config.MAILGUN_API_KEY) {
+    if (!process.env.MAILGUN_API_KEY) {
       throw new ConfigurationError("Mailgun API key is not configured");
     }
-    const MAILGUN_DOMAIN = 'sandbox97416a562f9149aaa26171af37ddc698.mailgun.org';
-
-    // Fetch order data from Shopify
-    let order: ShopifyOrder | null = null;
-    try {
-      const rawOrder = await api.shopifyOrder.findOne(orderId, {
+    return {
+      orderId :request.properties.orderId,
+      shopId,
+      shopify
+    };
+}
+async function getOrder(shopId: string, orderId: string, api:any, logger: any) {
+    let order: ShopifyOrder | null = await api.shopifyOrder.findOne(orderId, {
         select: {
           id: true,
           name: true, 
@@ -112,22 +103,7 @@ const route: RouteHandler<{ Body: OrderEmailRequestBody }> = async ({
           shopId: true
         }
       });
-      if (rawOrder) {
-        order = {
-          id: String(rawOrder.id),
-          name: rawOrder.name ?? "",
-          email: rawOrder.email ?? "",
-          processedAt: rawOrder.processedAt ? rawOrder.processedAt.toISOString() : "",
-          createdAt: rawOrder.createdAt ? rawOrder.createdAt.toISOString() : "",
-          customerId: rawOrder.customerId ?? undefined,
-          legacyResourceId: rawOrder.legacyResourceId ?? undefined,
-          shopId: rawOrder.shopId ?? ""
-        };
-      }
-    } catch (error) {
-      logger.error({ error, orderId, shopId }, "Error fetching order data from Shopify");
-      throw new ShopifyError(`Error fetching order data: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
+
     if (!order) {
       throw new ShopifyError(`Order with ID ${orderId} not found`);
     }
@@ -144,12 +120,16 @@ const route: RouteHandler<{ Body: OrderEmailRequestBody }> = async ({
       }, "Order tenant mismatch");
       throw new AuthenticationError("Order does not belong to the authenticated shop");
     }
-
-    // Fetch customer data if customer ID exists
-    let customer;
+    return {
+      legacyIdNum,
+      order
+    };
+}
+async function getCustomerData(api: any, order: any, logger: any) {
+  let customer: any = null;
     if (order.customerId) {
       try {
-        customer = await api.shopifyCustomer.findOne(order.customerId, {
+       customer = await api.shopifyCustomer.findOne(order.customerId, {
           select: {
             id: true,
             firstName: true,
@@ -174,9 +154,14 @@ const route: RouteHandler<{ Body: OrderEmailRequestBody }> = async ({
     }
 
     // Safely construct customer name from available data
-    const customerFullName = customer ? `${customer.firstName} ${customer.lastName}` : "Customer";
+    const customerName = customer ? `${customer.firstName} ${customer.lastName}` : "Customer";
 
-
+    return {
+      customerEmail,
+      customerName
+    };
+}
+async function getOrderUrls(shopify: any, order: any, logger: any) {
     // Process order URLs from metafields using Shopify API
     let shortUrls: { lineItemId: string; shortUrl: string }[] = [];
     
@@ -228,7 +213,9 @@ const route: RouteHandler<{ Body: OrderEmailRequestBody }> = async ({
         error: error instanceof Error ? error.message : 'Unknown error'
       }, "Failed to fetch metafield data from Shopify API");
     }
-
+    return shortUrls;
+}
+async function getOrderLineItems(shopify: any, order: any, logger: any, legacyIdNum: number, shortUrls: { lineItemId: string; shortUrl: string }[]) {
     // Fetch line items directly from Shopify API
     let lineItems: OrderLineItem[] = [];
     try {
@@ -259,23 +246,15 @@ const route: RouteHandler<{ Body: OrderEmailRequestBody }> = async ({
         error: error instanceof Error ? error.message : 'Unknown error'
       }, "Failed to fetch line items from Shopify API, proceeding with empty line items");
     }
+    return lineItems;
+}
 
-    // Prepare data for the email template
-    const emailData = {
-      orderNumber: order.name || "Unknown Order",
-      orderDate: formatDate(order.processedAt || order.createdAt),
-      items: lineItems,
-      customerName: customerFullName,
-    };
-
-    // Generate email content using template
-    const { subject: emailSubject, html: emailContent } = generateOrderEmailTemplate(emailData);
-
-    // Initialize Mailgun client
+async function sendEmail(customerEmail: string, emailSubject: string, order: any, emailContent: string, logger: any) {
+    const MAILGUN_DOMAIN = 'sandbox97416a562f9149aaa26171af37ddc698.mailgun.org';
     const mailgun = new Mailgun(formData);
     const mg = mailgun.client({
       username: 'api',
-      key: config.MAILGUN_API_KEY
+      key: process.env.MAILGUN_API_KEY!
     });
 
     // Send email through Mailgun
@@ -332,6 +311,21 @@ const route: RouteHandler<{ Body: OrderEmailRequestBody }> = async ({
       customerEmail,
       status: emailResult.status
     }, "Email sent successfully");
+
+    return emailResult;
+}
+
+const route: RouteHandler<{ Body: OrderEmailRequestBody }> = async ({request, reply, api, logger, connections}) => {
+  try {
+    const { orderId, shopId, shopify } = await validateInputs(request, connections);
+    const { legacyIdNum, order } = await getOrder(shopId, orderId, api, logger);
+    const orderNumber = order.name || "Unknown Order";
+    const orderDate = formatDate(order.processedAt || order.createdAt);
+    const { customerEmail, customerName } = await getCustomerData(api, order, logger); 
+    const shortUrls = await getOrderUrls(shopify, order, logger);
+    const items = await getOrderLineItems(shopify, order, logger, legacyIdNum, shortUrls);
+    const { subject: emailSubject, html: emailContent } = generateOrderEmailTemplate({orderNumber,orderDate,items,customerName,});
+    const emailResult = await sendEmail(customerEmail, emailSubject, order, emailContent, logger);
     
     return await reply.send({
       success: true,

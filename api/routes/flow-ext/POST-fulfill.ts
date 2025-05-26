@@ -11,7 +11,6 @@ interface LineItem {
   properties?: Array<{ name: string; value: string }>;
   [key: string]: any; // For other properties that might exist
 }
-
 //Data structure for URL shortening MyOnCare API request
 interface UrlData {
   longURL: string;
@@ -20,7 +19,6 @@ interface UrlData {
   caretaskId?: number;
   maxClicksCount: number;
 }
-
 //Result of processing a line item
 interface LineItemProcessingResult {
   success: boolean;
@@ -28,13 +26,11 @@ interface LineItemProcessingResult {
   lineItemId: string;
   shortUrl: string;
 }
-
 //Result of processing and storing a line item
 interface FlowProcessingResult {
   saveSuccess: boolean;
   processingResult: LineItemProcessingResult;
 }
-
 // Token cache for reusing JWT tokens
 interface TokenCache {
   accessToken: string;

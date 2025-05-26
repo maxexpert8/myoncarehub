@@ -1,6 +1,7 @@
 "Result of URL shortening operation"
 type Result {
   success: Boolean!
+  errorMessage: String
   errors: [sendEmailError!]
 }
 
