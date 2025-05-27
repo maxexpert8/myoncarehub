@@ -2,7 +2,6 @@ import { RouteHandler } from "gadget-server";
 import formData from "form-data";
 import Mailgun from "mailgun.js";
 import { generateOrderEmailTemplate, formatDate, formatCurrency } from "../../templates/orderEmail";
-import { c } from "node_modules/vite/dist/node/types.d-aGj9QkWt";
 
 // Custom error classes for better error handling
 class ValidationError extends Error {
@@ -248,7 +247,6 @@ async function getOrderLineItems(shopify: any, order: any, logger: any, legacyId
     }
     return lineItems;
 }
-
 async function sendEmail(customerEmail: string, emailSubject: string, order: any, emailContent: string, logger: any) {
     const MAILGUN_DOMAIN = 'sandbox97416a562f9149aaa26171af37ddc698.mailgun.org';
     const mailgun = new Mailgun(formData);
@@ -316,6 +314,7 @@ async function sendEmail(customerEmail: string, emailSubject: string, order: any
 }
 
 const route: RouteHandler<{ Body: OrderEmailRequestBody }> = async ({request, reply, api, logger, connections}) => {
+    logger.debug({ request }, "Received order email request");
   try {
     const { orderId, shopId, shopify } = await validateInputs(request, connections);
     const { legacyIdNum, order } = await getOrder(shopId, orderId, api, logger);
