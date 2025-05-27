@@ -1,7 +1,7 @@
 name = "Send Activation Email"
 type = "flow_action"
 handle = "send-activation-email"
-runtime_url = "https://myoncarehub.gadget.app/flow-ext/orderEmail"
+runtime_url = "https://myoncarehub.gadget.app/flow-ext/order-email"
 schema = "./schema.graphql"
 api_version = "2023-07"
 return_type_ref = "Result"
