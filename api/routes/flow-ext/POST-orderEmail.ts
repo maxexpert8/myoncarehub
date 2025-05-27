@@ -65,32 +65,43 @@ interface ShopifyOrder {
   legacyResourceId?: string;
   shopId: string;
 }
-
-async function validateInputs(request: any, connections: any) {
- if (!request.properties || !request.properties.orderId) {
+function extractNumericId(gidOrId: string): string {
+  // If it's already just a number, return as-is
+  if (/^\d+$/.test(gidOrId)) {
+    return gidOrId;
+  }
+  
+  // If it's a GID, extract the numeric part
+  const match = gidOrId.match(/gid:\/\/shopify\/\w+\/(\d+)/);
+  if (match) {
+    return match[1];
+  }
+  
+  // If neither format matches, throw an error
+  throw new ValidationError(`Invalid order ID format: ${gidOrId}`);
+}
+async function validateInputs(body: any, connections: any) {
+ if (!body.properties || !body.properties.id) {
       throw new ValidationError("Missing orderId in request body");
     }
     // Validate shop authentication
-    const shopId = connections.shopify.currentShopId;
+    const shopId = body.shop_id || connections.shopify?.current?.shopId;
     if (!shopId) {
       throw new AuthenticationError("No active shop session found");
     }
-    const shopify = connections.shopify.current;
-    if (!shopify) {
-      throw new ShopifyError("Failed to initialize Shopify API client");
-    }
+    
     // Validate configuration
     if (!process.env.MAILGUN_API_KEY) {
       throw new ConfigurationError("Mailgun API key is not configured");
     }
     return {
-      orderId :request.properties.orderId,
-      shopId,
-      shopify
+      orderId :body.properties.id,
+      shopId
     };
 }
 async function getOrder(shopId: string, orderId: string, api:any, logger: any) {
-    let order: ShopifyOrder | null = await api.shopifyOrder.findOne(orderId, {
+    const numericOrderId = extractNumericId(orderId);
+    let order: ShopifyOrder | null = await api.shopifyOrder.findOne(numericOrderId, {
         select: {
           id: true,
           name: true, 
@@ -102,7 +113,7 @@ async function getOrder(shopId: string, orderId: string, api:any, logger: any) {
           shopId: true
         }
       });
-
+      logger.debug({ order }, "Fetched order data from Shopify API");
     if (!order) {
       throw new ShopifyError(`Order with ID ${orderId} not found`);
     }
@@ -160,14 +171,14 @@ async function getCustomerData(api: any, order: any, logger: any) {
       customerName
     };
 }
-async function getOrderUrls(shopify: any, order: any, logger: any) {
+async function getOrderUrls(api: any, order: any, logger: any) {
     // Process order URLs from metafields using Shopify API
     let shortUrls: { lineItemId: string; shortUrl: string }[] = [];
     
     try {
       let metafieldsResponse: ShopifyMetafield[] = [];
       try {
-        const metafieldsPaginated = await shopify.metafield.list({
+        const metafieldsPaginated = await api.metafield.list({
           owner_resource: "order",
           owner_id: Number(order.legacyResourceId)
         });
@@ -214,11 +225,11 @@ async function getOrderUrls(shopify: any, order: any, logger: any) {
     }
     return shortUrls;
 }
-async function getOrderLineItems(shopify: any, order: any, logger: any, legacyIdNum: number, shortUrls: { lineItemId: string; shortUrl: string }[]) {
+async function getOrderLineItems(api: any, order: any, logger: any, legacyIdNum: number, shortUrls: { lineItemId: string; shortUrl: string }[]) {
     // Fetch line items directly from Shopify API
     let lineItems: OrderLineItem[] = [];
     try {
-      const lineItemsResponse = await shopify.order.get(legacyIdNum, {
+      const lineItemsResponse = await api.order.get(legacyIdNum, {
         fields: "line_items"
       });
 
@@ -313,16 +324,18 @@ async function sendEmail(customerEmail: string, emailSubject: string, order: any
     return emailResult;
 }
 
-const route: RouteHandler<{ Body: OrderEmailRequestBody }> = async ({request, reply, api, logger, connections}) => {
+const route: RouteHandler = async ({request, reply, api, logger, connections}) => {
     logger.debug({ request }, "Received order email request");
+    logger.debug({ connections }, "Received order email Connections");
+    logger.debug({ api }, "Received order email api client");
   try {
-    const { orderId, shopId, shopify } = await validateInputs(request, connections);
+    const { orderId, shopId } = await validateInputs(request.body, connections);
     const { legacyIdNum, order } = await getOrder(shopId, orderId, api, logger);
     const orderNumber = order.name || "Unknown Order";
     const orderDate = formatDate(order.processedAt || order.createdAt);
     const { customerEmail, customerName } = await getCustomerData(api, order, logger); 
-    const shortUrls = await getOrderUrls(shopify, order, logger);
-    const items = await getOrderLineItems(shopify, order, logger, legacyIdNum, shortUrls);
+    const shortUrls = await getOrderUrls(api, order, logger);
+    const items = await getOrderLineItems(api, order, logger, legacyIdNum, shortUrls);
     const { subject: emailSubject, html: emailContent } = generateOrderEmailTemplate({orderNumber,orderDate,items,customerName,});
     const emailResult = await sendEmail(customerEmail, emailSubject, order, emailContent, logger);
     
