@@ -18,7 +18,7 @@ title = "Send Activation Email Block"
     required = true
     description = "The Order ID" 
   [[settings.fields]]
-    key = "lineItemsIDs"
+    key = "lineItems"
     type = "single_line_text_field"
     name = "Line Items JSON string"
     required = true

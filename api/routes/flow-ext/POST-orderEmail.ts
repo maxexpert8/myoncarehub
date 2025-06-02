@@ -1,7 +1,6 @@
 import { RouteHandler } from "gadget-server";
-import formData from "form-data";
-import Mailgun from "mailgun.js";
 import { generateOrderEmailTemplate, formatDate, formatCurrency } from "../../templates/orderEmail";
+import Brevo from "@getbrevo/brevo";
 
 // Custom error classes for better error handling
 class ValidationError extends Error {
@@ -22,13 +21,12 @@ class ShopifyError extends Error {
     this.name = 'ShopifyError';
   }
 }
-class MailgunError extends Error {
+class MailerError extends Error {
   statusCode?: number;
   details?: any;
-  
   constructor(message: string, statusCode?: number, details?: any) {
     super(message);
-    this.name = 'MailgunError';
+    this.name = 'MailerError';
     this.statusCode = statusCode;
     this.details = details;
   }
@@ -40,19 +38,6 @@ class ConfigurationError extends Error {
   }
 }
 
-interface OrderLineItem {
-  id: string;
-  longURL: string;
-  shortUrl: string;
-  quantity: number;
-  lineItemPic: string;
-}
-interface ShopifyMetafield {
-  id: number;
-  namespace: string;
-  key: string;
-  value: string;
-}
 interface ShopifyOrder {
   id: string;
   name: string;
@@ -98,7 +83,7 @@ async function validateInputs(body: any, connections: any) {
   }
   
   // Validate configuration
-  if (!process.env.MAILGUN_API_KEY) {
+  if (!process.env.MAILERSEND_API_KEY) {
     throw new ConfigurationError("Mailgun API key is not configured");
   }
   return {
@@ -178,71 +163,43 @@ async function getCustomerData(api: any, order: any, logger: any) {
     };
 }
 async function sendEmail(customerEmail: string, emailSubject: string, order: any, emailContent: string, logger: any) {
-    const MAILGUN_DOMAIN = 'sandbox97416a562f9149aaa26171af37ddc698.mailgun.org';
-    const mailgun = new Mailgun(formData);
-    const mg = mailgun.client({
-      username: 'api',
-      key: process.env.MAILGUN_API_KEY!
-    });
+  const brevoApiKey = process.env.BREVO_API_KEY;
+  if (!brevoApiKey) {
+    throw new ConfigurationError("Brevo API key is not configured");
+  }
 
-    // Send email through Mailgun
-    logger.info({ 
-      to: customerEmail, 
-      subject: emailSubject,
-      orderName: order.name,
-      domain: MAILGUN_DOMAIN
-    }, "Sending order email via Mailgun");
+  const brevo = new Brevo.TransactionalEmailsApi();
+  brevo.setApiKey(Brevo.TransactionalEmailsApiApiKeys.apiKey, brevoApiKey);
 
-    let emailResult;
-    try {
-      emailResult = await mg.messages.create(MAILGUN_DOMAIN, {
-        from: "MyOnCare <noreply@myoncare.com>",
-        to: customerEmail,
-        subject: emailSubject,
-        html: emailContent
-      });
-    } catch (error) {
-      // Handle Mailgun API errors
-      const mailgunError = error as {
-        message?: string;
-        status?: number;
-        details?: string;
-        response?: {
-          status?: number;
-          data?: any;
-        };
-      };
-      logger.error({ 
-        error: mailgunError,
-        status: mailgunError?.status || mailgunError?.response?.status,
-        details: mailgunError?.details || mailgunError?.response?.data,
-        orderName: order.name,
-        customerEmail
-      }, "Error from Mailgun API");
-      
-      throw new MailgunError(
-        `Failed to send email: ${mailgunError?.message || 'Unknown error'}`, 
-        mailgunError?.status || mailgunError?.response?.status, 
-        mailgunError?.details || mailgunError?.response?.data
-      );
-    }
+  const emailParams = {
+    sender: {
+      name: "MyOnClinic Shop",
+      email: "marketing@myon.clinic",
+    },
+    to: [
+      {
+        email: customerEmail,
+      },
+    ],
+    subject: emailSubject,
+    htmlContent: emailContent,
+  };
 
-    // Validate Mailgun response
-    if (!emailResult?.id || !emailResult?.message?.toLowerCase().includes("queued")) {
-      throw new MailgunError("Unexpected response from Mailgun API", undefined, emailResult);
-    }
+  logger.info({ emailParams, orderName: order.name }, "Sending order email via Brevo");
 
-
-    logger.info({ 
-      messageId: emailResult.id, 
-      orderName: order.name,
-      customerEmail,
-      status: emailResult.status
-    }, "Email sent successfully");
-
-    return emailResult;
+  try {
+    const response = await brevo.sendTransacEmail(emailParams);
+    logger.info({ messageId: response.messageId, response }, "Email sent successfully via Brevo");
+    return response;
+  } catch (error: any) {
+    logger.error({ error }, "Error from Brevo API");
+    throw new MailerError(
+      `Failed to send email via Brevo: ${error?.message || "Unknown error"}`,
+      error?.response?.status,
+      error?.response?.data
+    );
+  }
 }
-
 const route: RouteHandler = async ({request, reply, api, logger, connections}) => {
     logger.debug({ request }, "Received order email request");
     logger.debug({ connections }, "Received order email Connections");
@@ -254,12 +211,13 @@ const route: RouteHandler = async ({request, reply, api, logger, connections}) =
     const { customerEmail, customerName } = await getCustomerData(api, order, logger); 
     const { subject: emailSubject, html: emailContent } = generateOrderEmailTemplate({orderNumber,orderDate,items,customerName,});
     const emailResult = await sendEmail(customerEmail, emailSubject, order, emailContent, logger);
-    
+
     return await reply.send({
       success: true,
       message: `Order email sent to ${customerEmail}`,
-      messageId: emailResult.id
+      messageId: emailResult.messageId,
     });
+    
   } catch (error) {
     // Handle specific error types
     if (error instanceof ValidationError) {
@@ -289,18 +247,18 @@ const route: RouteHandler = async ({request, reply, api, logger, connections}) =
       });
     }
     
-    if (error instanceof MailgunError) {
+    if (error instanceof MailerError) {
       logger.error({ 
-        error: error instanceof MailgunError ? error.message : "Unknown error",
-        statusCode: error instanceof MailgunError ? error.statusCode : "Unknown status code",
-        details: error instanceof MailgunError ? error.details : "Unknown Error Details",
+        error: error instanceof MailerError ? error.message : "Unknown error",
+        statusCode: error instanceof MailerError ? error.statusCode : "Unknown status code",
+        details: error instanceof MailerError ? error.details : "Unknown Error Details",
       }, "Mailgun error in order email request");
       return await reply.code(502).send({
         success: false,
-        errorType: "mailgun_error",
-        error: error instanceof MailgunError ? error.message : "Unknown error",
-        statusCode: error instanceof MailgunError ? error.statusCode : "Unknown status code",
-        details: error instanceof MailgunError ? error.details : "Unknown Error Details",
+        errorType: "mailer_error",
+        error: error instanceof MailerError ? error.message : "Unknown error",
+        statusCode: error instanceof MailerError ? error.statusCode : "Unknown status code",
+        details: error instanceof MailerError ? error.details : "Unknown Error Details",
       });
     }
     
