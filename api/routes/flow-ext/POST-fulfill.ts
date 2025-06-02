@@ -1,5 +1,5 @@
 import { RouteHandler } from "gadget-server";
-import jwt from "jsonwebtoken";
+import * as jwt from "jsonwebtoken";
 
 // Interfaces
 //Line item structure from Shopify

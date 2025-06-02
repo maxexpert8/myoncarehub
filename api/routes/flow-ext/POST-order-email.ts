@@ -83,8 +83,8 @@ async function validateInputs(body: any, connections: any) {
   }
   
   // Validate configuration
-  if (!process.env.MAILERSEND_API_KEY) {
-    throw new ConfigurationError("Mailgun API key is not configured");
+  if (!process.env.BREVO_API_TOKEN) {
+    throw new ConfigurationError("Brevo API token is not configured");
   }
   return {
     orderId :body.properties.id,
@@ -189,7 +189,7 @@ async function sendEmail(customerEmail: string, emailSubject: string, order: any
 
   try {
     const response = await brevo.sendTransacEmail(emailParams);
-    logger.info({ messageId: response.messageId, response }, "Email sent successfully via Brevo");
+    logger.info({ messageId: response.body.messageId, response }, "Email sent successfully via Brevo");
     return response;
   } catch (error: any) {
     logger.error({ error }, "Error from Brevo API");
@@ -215,7 +215,7 @@ const route: RouteHandler = async ({request, reply, api, logger, connections}) =
     return await reply.send({
       success: true,
       message: `Order email sent to ${customerEmail}`,
-      messageId: emailResult.messageId,
+      messageId: emailResult.body.messageId,
     });
     
   } catch (error) {
@@ -252,7 +252,7 @@ const route: RouteHandler = async ({request, reply, api, logger, connections}) =
         error: error instanceof MailerError ? error.message : "Unknown error",
         statusCode: error instanceof MailerError ? error.statusCode : "Unknown status code",
         details: error instanceof MailerError ? error.details : "Unknown Error Details",
-      }, "Mailgun error in order email request");
+      }, "Brevo error in order email request");
       return await reply.code(502).send({
         success: false,
         errorType: "mailer_error",

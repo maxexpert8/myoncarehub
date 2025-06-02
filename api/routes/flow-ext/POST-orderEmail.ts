@@ -189,8 +189,9 @@ async function sendEmail(customerEmail: string, emailSubject: string, order: any
 
   try {
     const response = await brevo.sendTransacEmail(emailParams);
-    logger.info({ messageId: response.messageId, response }, "Email sent successfully via Brevo");
-    return response;
+    const messageId = response.body?.messageId || 'unknown';
+    logger.info({ messageId, response }, "Email sent successfully via Brevo");
+    return { messageId, ...response };
   } catch (error: any) {
     logger.error({ error }, "Error from Brevo API");
     throw new MailerError(
