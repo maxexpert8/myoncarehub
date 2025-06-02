@@ -5,7 +5,7 @@ runtime_url = "https://myoncarehub.gadget.app/flow-ext/fulfill"
 schema = "./schema.graphql"
 api_version = "2023-07"
 return_type_ref = "Result"
-description = "Generate and store a shortened URL for individual order line items when used with Shopify Flow's 'Repeat for each line item' loop"
+description = "Generate and store a shortened URL for individual order line items"
 
 [flow_action]
 title = "Line Item URL Shortener"
@@ -19,45 +19,29 @@ title = "Line Item URL Shortener"
   description = "The Order ID"
 
   [[settings.fields]]
-  key = "lineItemId"
+  key = "lineItemsIDs"
   type = "single_line_text_field"
-  name = "Line Item ID"
+  name = "Line Item IDs"
   required = true
-  description = "The line Item ID"
-  
-  [[settings.fields]]
-  key = "lineItemQuantity" 
-  type = "single_line_text_field"
-  name = "Line Item Quantity"
-  minimum = 1  
-  required = true
-  description = "The Quantity Required from this line Item"
+  description = "The line Item IDs"
 
   [[settings.fields]]
-  key = "lineItemLongUrl"
+  key = "lineItemsPics"
+  type = "single_line_text_field"
+  name = "Line Item Photos"
+  required = true
+  description = "The line Item Photos"
+  
+  [[settings.fields]]
+  key = "lineItemQuantities" 
+  type = "single_line_text_field"
+  name = "Line Item Quantities"
+  required = true
+  description = "The Quantities Required from all line Items"
+
+  [[settings.fields]]
+  key = "lineItemLongUrls"
   type = "single_line_text_field"
   name = "LongURL"
   required = true
-  description = "The Pathway Long URL"
-
-  
-  [[settings.fields]]
-  key = "patientId"
-  type = "single_line_text_field"
-  name = "Patient ID"
-  required = false
-  description = "Optional patient identifier if not included in the long URL"
-  
-  [[settings.fields]]
-  key = "pathwayId"
-  type = "single_line_text_field"
-  name = "Pathway ID"
-  required = false
-  description = "Optional pathway identifier if not included in the long URL"
-  
-  [[settings.fields]]
-  key = "taskId"
-  type = "single_line_text_field"
-  name = "Task ID"
-  required = false
-  description = "Optional task identifier if not included in the long URL"
+  description = "The Pathway Long URLs for all line items"

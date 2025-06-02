@@ -20,6 +20,6 @@ title = "Send Activation Email Block"
   [[settings.fields]]
     key = "lineItemsIDs"
     type = "single_line_text_field"
-    name = "Line Items Loop IDs"
+    name = "Line Items JSON string"
     required = true
-    description = "Line Items Loop IDs"    
+    description = "Line Items needs to be parsed"    

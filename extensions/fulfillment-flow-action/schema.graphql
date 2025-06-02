@@ -2,9 +2,8 @@
 type Result {
   success: Boolean!
   saved: Boolean!
-  shortUrl: String
-  lineItemId: ID
-  
+  lineItems: String
+  orderURLs: String
   "Detailed errors (if any)"
   errors: [UrlShortenerError!]
 }

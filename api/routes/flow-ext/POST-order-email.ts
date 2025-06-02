@@ -42,9 +42,10 @@ class ConfigurationError extends Error {
 
 interface OrderLineItem {
   id: string;
-  title: string;
-  quantity: number;
+  longURL: string;
   shortUrl: string;
+  quantity: number;
+  lineItemPic: string;
 }
 interface ShopifyMetafield {
   id: number;
@@ -84,23 +85,27 @@ function extractNumericId(gidOrId: string): string {
   throw new ValidationError(`Invalid order ID format: ${gidOrId}`);
 }
 async function validateInputs(body: any, connections: any) {
- if (!body.properties || !body.properties.id) {
-      throw new ValidationError("Missing orderId in request body");
-    }
-    // Validate shop authentication
-    const shopId = body.shop_id || connections.shopify?.current?.shopId;
-    if (!shopId) {
-      throw new AuthenticationError("No active shop session found");
-    }
-    
-    // Validate configuration
-    if (!process.env.MAILGUN_API_KEY) {
-      throw new ConfigurationError("Mailgun API key is not configured");
-    }
-    return {
-      orderId :body.properties.id,
-      shopId
-    };
+  if (!body.properties || !body.properties.id) {
+    throw new ValidationError("Missing orderId in request body");
+  }
+  if (!body.properties.lineItems) {
+    throw new ValidationError("Missing lineItems Data in request body");
+  }
+  // Validate shop authentication
+  const shopId = body.shop_id || connections.shopify?.current?.shopId;
+  if (!shopId) {
+    throw new AuthenticationError("No active shop session found");
+  }
+  
+  // Validate configuration
+  if (!process.env.MAILGUN_API_KEY) {
+    throw new ConfigurationError("Mailgun API key is not configured");
+  }
+  return {
+    orderId :body.properties.id,
+    shopId,
+    items: JSON.parse(body.properties.lineItems)
+  };
 }
 async function getOrder(shopId: string, orderId: string, api:any, logger: any) {
     const legacyIdNum = extractNumericId(orderId);
@@ -131,8 +136,9 @@ async function getOrder(shopId: string, orderId: string, api:any, logger: any) {
       throw new AuthenticationError("Order does not belong to the authenticated shop");
     }
     return {
-      legacyIdNum,
-      order
+      orderNumber: order.name || "Unknown Order",
+      order,
+      orderDate: formatDate(order.processedAt || order.createdAt)
     };
 }
 async function getCustomerData(api: any, order: any, logger: any) {
@@ -170,93 +176,6 @@ async function getCustomerData(api: any, order: any, logger: any) {
       customerEmail,
       customerName
     };
-}
-async function getOrderUrls(api: any, order: any, logger: any) {
-    // Process order URLs from metafields using Shopify API
-    let shortUrls: { lineItemId: string; shortUrl: string }[] = [];
-    
-    try {
-      let metafieldsResponse: ShopifyMetafield[] = [];
-      try {
-        const metafieldsPaginated = await api.metafield.list({
-          owner_resource: "order",
-          owner_id: Number(order.legacyResourceId)
-        });
-
-        metafieldsResponse = metafieldsPaginated.map((m: any) => ({
-          id: m.id,
-          namespace: m.namespace,
-          key: m.key,
-          value: String(m.value)  // Convert to string
-        }));
-
-        logger.debug(`Found ${metafieldsResponse.length} metafields`);
-        
-      } catch (error) {
-        logger.warn({ 
-          orderId: order.id,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        }, "Failed to fetch metafield data from Shopify API");
-      }
-
-      const urlsMetafield = metafieldsResponse.find(
-        (m: { namespace: string; key: string; value: string }) =>
-          m.namespace === 'myoncare' && m.key === 'orderurls'
-      );
-      
-      if (urlsMetafield?.value) {
-        try {
-          shortUrls = JSON.parse(urlsMetafield.value);
-          logger.info({ orderName: order.name }, "Successfully retrieved order URLs from metafields");
-        } catch (error) {
-          logger.warn({ 
-            metafieldValue: urlsMetafield.value,
-            error: error instanceof Error ? error.message : 'Unknown error' 
-          }, "Failed to parse orderurls JSON metafield");
-        }
-      } else {
-        logger.info({ orderName: order.name }, "No orderurls metafield found for this order");
-      }
-    } catch (error) {
-      logger.warn({ 
-        orderId: order.id,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }, "Failed to fetch metafield data from Shopify API");
-    }
-    return shortUrls;
-}
-async function getOrderLineItems(api: any, order: any, logger: any, legacyIdNum: string, shortUrls: { lineItemId: string; shortUrl: string }[]) {
-    // Fetch line items directly from Shopify API
-    let lineItems: OrderLineItem[] = [];
-    try {
-      const lineItemsResponse = await api.order.get(legacyIdNum, {
-        fields: "line_items"
-      });
-
-      
-      if (lineItemsResponse && lineItemsResponse.line_items) {
-        lineItems = lineItemsResponse.line_items.map((item: any) => {
-          const normalizedLineItemId = `gid://shopify/LineItem/${item.id}`;
-          const shortUrlEntry = shortUrls.find(entry =>
-            entry.lineItemId === normalizedLineItemId ||
-            entry.lineItemId === String(item.id)
-          );
-          return {
-            id: normalizedLineItemId,
-            title: item.title,
-            quantity: item.quantity,
-            shortUrl: shortUrlEntry?.shortUrl || ''
-          };
-        });
-        logger.info({ orderName: order.name, lineItemCount: lineItems.length }, "Successfully retrieved line items from Shopify API");
-      }
-    } catch (error) {
-      logger.warn({ 
-        orderId: order.id,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }, "Failed to fetch line items from Shopify API, proceeding with empty line items");
-    }
-    return lineItems;
 }
 async function sendEmail(customerEmail: string, emailSubject: string, order: any, emailContent: string, logger: any) {
     const MAILGUN_DOMAIN = 'sandbox97416a562f9149aaa26171af37ddc698.mailgun.org';
@@ -329,13 +248,10 @@ const route: RouteHandler = async ({request, reply, api, logger, connections}) =
     logger.debug({ connections }, "Received order email Connections");
     logger.debug({ api }, "Received order email api client");
   try {
-    const { orderId, shopId } = await validateInputs(request.body, connections);
-    const { legacyIdNum, order } = await getOrder(shopId, orderId, api, logger);
-    const orderNumber = order.name || "Unknown Order";
-    const orderDate = formatDate(order.processedAt || order.createdAt);
+    logger.debug({ requestBody: request.body }, "Validating order email request body");
+    const { orderId, shopId, items } = await validateInputs(request.body, connections);
+    const { orderNumber, order, orderDate } = await getOrder(shopId, orderId, api, logger);   
     const { customerEmail, customerName } = await getCustomerData(api, order, logger); 
-    const shortUrls = await getOrderUrls(api, order, logger);
-    const items = await getOrderLineItems(api, order, logger,legacyIdNum, shortUrls);
     const { subject: emailSubject, html: emailContent } = generateOrderEmailTemplate({orderNumber,orderDate,items,customerName,});
     const emailResult = await sendEmail(customerEmail, emailSubject, order, emailContent, logger);
     

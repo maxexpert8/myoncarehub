@@ -8,8 +8,21 @@ interface LineItem {
   name?: string;
   title?: string;
   quantity?: number;
-  properties?: Array<{ name: string; value: string }>;
-  [key: string]: any; // For other properties that might exist
+  longURL: string; // URL to be shortened
+  lineItemPic?: string; // Optional picture URL}[];
+  shortUrl?: string; // Shortened URL
+}
+//Line items structure for processing
+interface LineItems {
+  lineItem?: {
+    id?: string;
+    name?: string;
+    title?: string;
+    quantity?: number;
+    longURL?: string; // URL to be shortened
+    lineItemPic?: string; // Optional picture URL}[];
+    shortUrl?: string; // Shortened URL
+  }[]
 }
 //Data structure for URL shortening MyOnCare API request
 interface UrlData {
@@ -22,14 +35,20 @@ interface UrlData {
 //Result of processing a line item
 interface LineItemProcessingResult {
   success: boolean;
-  message: string;
-  lineItemId: string;
+  lineItems: [LineItem];
   shortUrl: string;
+  lineItemId: string;
 }
 //Result of processing and storing a line item
 interface FlowProcessingResult {
   saveSuccess: boolean;
-  processingResult: LineItemProcessingResult;
+  success: boolean;
+  lineItems: [LineItem];
+  orderUrls: string;
+}
+interface saveOrderMetafieldResult {
+  saveSuccess: boolean;
+  orderURLs: string;
 }
 // Token cache for reusing JWT tokens
 interface TokenCache {
@@ -42,6 +61,52 @@ interface TokenCache {
 let tokenCache: TokenCache | null = null;
 
 /**
+ * Calls the URL shortening service API to generate short URLs
+ * @param urlData The data to send to the URL shortening service
+ * @param logger Logger instance for debugging
+ * @returns The generated short URL or empty string if failed
+ */
+async function shortenUrl(urlData: UrlData, logger: any): Promise<string> {
+  try {
+    const token = await getAuthToken(logger);
+    const response = await fetch("https://url.myoncare.care/url/create-limited-url", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify(urlData)
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error({
+        statusCode: response.status,
+        error: errorText,
+        requestUrl: "https://url.myoncare.care/url/create-limited-url",
+        requestData: urlData
+      }, "URL shortening API error");
+      return "";
+    }
+    
+    const data = await response.json();
+    if (data.shortURL) {
+      logger.debug({ shortURL: data.shortURL }, "Short URL generated successfully");
+      return data.shortURL;
+    } else {
+      logger.error({ responseData: data }, "No short URL found in API response");
+      return "";
+    }
+  } catch (error) {
+    logger.error({ 
+      error, 
+      message: error instanceof Error ? error.message : "Unknown error", 
+      urlRequest: urlData
+    }, "Error in shortenUrl function");
+    return "";
+  }
+}
+/**
  * Saves the generated short URLs to the order metafield in Shopify
  * @param shopDomain The Shopify shop domain
  * @param orderId The order ID
@@ -52,25 +117,19 @@ let tokenCache: TokenCache | null = null;
 async function saveOrderMetafield(
   shopDomain: string,
   orderId: string,
-  newEntry: { lineItemId: string, shortUrl: string },
+  newEntry: [{ lineItemId: string, shortUrl: string }],
   logger: any
-): Promise<boolean> {
+): Promise<saveOrderMetafieldResult> {
   const accessToken = process.env.SHOPIFY_ADMIN_TOKEN;
   if (!accessToken) {
     logger.error("SHOPIFY_ADMIN_TOKEN environment variable is not set");
-    return false;
+    return {
+      saveSuccess: false,
+      orderURLs: ""
+    };
   }
-
+  logger.debug({ newEntry }, "Saving order metafield with short URLs");
   const adminApiUrl = `https://${shopDomain}/admin/api/2023-10/graphql.json`;
-  const existingMetafieldQuery = `
-    query {
-      order(id: "${orderId}") {
-        metafield(namespace: "myoncare", key: "orderurls") {
-          value
-        }
-      }
-    }
-  `;
   const mutationQuery = `
     mutation MetafieldsSet($metafields: [MetafieldsSetInput!]!) {
       metafieldsSet(metafields: $metafields) {
@@ -87,31 +146,6 @@ async function saveOrderMetafield(
       }
     }
   `;
-  // Fetch and parse existing metafield value  
-  const existingMetafieldResponse = await fetch(adminApiUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Shopify-Access-Token": accessToken,
-    },
-    body: JSON.stringify({ query: existingMetafieldQuery }),
-  });
-  const existingMetafieldData = await existingMetafieldResponse.json();
-  const existingValueRaw = existingMetafieldData?.data?.order?.metafield?.value || "[]";
-  const existingArray = JSON.parse(existingValueRaw);
-
-  // Check if the new entry already exists in the metafield
-  const existingEntry = existingArray.find((entry: any) => entry.lineItemId === newEntry.lineItemId);
-  if (existingEntry) {
-    logger.info(`Short URL already exists for lineItemId ${newEntry.lineItemId}`);
-    return false
-  }
-  
-  // Merge the new entry with the existing array and sort by lineItemId
-  const mergedArray = [...existingArray, newEntry];
-  logger.debug({ existingArray }, "Existing metafield value:");
-  logger.debug({ mergedArray }, "merged metafield value:");
-  mergedArray.sort((a, b) => a.lineItemId.localeCompare(b.lineItemId));
   const mutationVariables = {
     metafields: [
       {
@@ -119,7 +153,7 @@ async function saveOrderMetafield(
         namespace :"myoncare",
         key:  "orderurls",
         type: "json",
-        value: JSON.stringify(mergedArray),
+        value: JSON.stringify(newEntry),
       }
     ]
   };
@@ -135,11 +169,17 @@ async function saveOrderMetafield(
   });
   const responseBody = await response.json();
   if (responseBody.data?.metafieldsSet?.userErrors?.length > 0) {
-    return false;
+    return {
+      saveSuccess: false,
+      orderURLs: ""
+    };
   }
   logger.info("Successfully saved order metafield with short URLs");
   logger.debug({ responseBody }, "mutation Response");
-  return true;
+  return {
+    saveSuccess: true,
+    orderURLs: JSON.stringify(newEntry)
+  };
 }
 
 /**
@@ -257,89 +297,51 @@ async function getAuthToken(logger: any): Promise<string> {
  * @param logger Logger instance for debugging
  * @returns A processing result with success status and any short URL
  */
-async function processLineItem(
-  lineItem: LineItem | any,
+async function processLineItems(
+  lineItems: LineItem[] | any,
   logger: any
 ): Promise<LineItemProcessingResult> {
   try {
-    if (!lineItem.longURL) {
-      return {
-        success: false,
-        message: "Missing original URL in line item properties",
-        lineItemId: lineItem.id,
-        shortUrl: ""
+    const shortURLs: any = [];
+    const lineItemsIds: any = [];
+    const updatedLineItems: [LineItem] = [{"id": "", "longURL": ""}];
+    for (const lineItem of lineItems) {
+      var urlData: UrlData = {
+        longURL: lineItem.longURL,
+        firebasePatientId: "0",
+        carepathwayId: 0,
+        caretaskId: 0,
+        maxClicksCount: parseInt(String(lineItem.quantity || "1")) > 0 ? parseInt(String(lineItem.quantity || "1")) : 1,
       };
+      var shortUrl = await shortenUrl(urlData, logger);
+      shortURLs.push(shortUrl);
+      lineItemsIds.push(lineItem.id);
+      updatedLineItems.push({
+        id: lineItem.id,
+        longURL: lineItem.longURL,
+        shortUrl: shortUrl,
+        lineItemPic: lineItem.lineItemPic || "",
+        quantity: lineItem.quantity || 1,
+      });
+      logger.debug({ shortUrl }, "Short URL generated for line item");
     }
-    const urlData: UrlData = {
-      longURL: lineItem.longURL,
-      firebasePatientId: lineItem.patientId || 0,
-      carepathwayId: parseInt(lineItem.pathwayId || "0"),
-      caretaskId: parseInt(lineItem.taskId || "0"),
-      maxClicksCount: parseInt(String(lineItem.quantity || "1")) > 0 ? parseInt(String(lineItem.quantity || "1")) : 1,
-    };
-
-    // Call the URL shortening service
-    const shortUrl = await shortenUrl(urlData, logger);
+    logger.debug({ shortURLs }, "Short URLs generated for line items");
+    logger.debug({ lineItems }, "line items");
+    updatedLineItems.shift(); // Remove the dummy item to start with an empty array
     return {
-      success: shortUrl ? true : false,
-      message: shortUrl ? "Successfully generated short URL" : "Failed to generate short URL",
-      lineItemId: lineItem.id,
-      shortUrl: shortUrl ? shortUrl : ""
+      lineItems:  updatedLineItems ,
+      success: shortURLs.length == lineItems.length ? true : false,
+      lineItemId: lineItemsIds,
+      shortUrl: shortURLs.length == lineItems.length ? shortURLs : []
     };
   } catch (error) {
-    logger.error({ error, lineItemId: lineItem.id }, "Error processing line item");
+    logger.error({ error, lineItemId: lineItems[0].id }, "Error processing line item");
     return {
       success: false,
-      message: `Error processing line item: ${error instanceof Error ? error.message : String(error)}`,
-      lineItemId: lineItem.id || "",
+      lineItems: [{ id: lineItems[0].id, longURL: lineItems[0].longURL }],
+      lineItemId: lineItems[0].id || "",
       shortUrl: ""
     };
-  }
-}
-
-/**
- * Calls the URL shortening service API to generate short URLs
- * @param urlData The data to send to the URL shortening service
- * @param logger Logger instance for debugging
- * @returns The generated short URL or empty string if failed
- */
-async function shortenUrl(urlData: UrlData, logger: any): Promise<string> {
-  try {
-    const token = await getAuthToken(logger);
-    const response = await fetch("https://url.myoncare.care/url/create-limited-url", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`
-      },
-      body: JSON.stringify(urlData)
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      logger.error({
-        statusCode: response.status,
-        error: errorText,
-        requestUrl: "https://url.myoncare.care/url/create-limited-url",
-        requestData: urlData
-      }, "URL shortening API error");
-      return "";
-    }
-    
-    const data = await response.json();
-    if (data.shortURL) {
-      return data.shortURL;
-    } else {
-      logger.error({ responseData: data }, "No short URL found in API response");
-      return "";
-    }
-  } catch (error) {
-    logger.error({ 
-      error, 
-      message: error instanceof Error ? error.message : "Unknown error", 
-      urlRequest: urlData
-    }, "Error in shortenUrl function");
-    return "";
   }
 }
 
@@ -350,23 +352,63 @@ async function shortenUrl(urlData: UrlData, logger: any): Promise<string> {
  * @returns Processing result
  */
 async function processFlow(request: any, logger: any): Promise<FlowProcessingResult> {
-  const lineItem = {
-    id: request.properties.lineItemId || "",
-    quantity: request.properties.lineItemQuantity || 1,
-    longURL: request.properties.lineItemLongUrl || "",
-    patientId: request.properties.patientId || 0,
-    pathwayId: request.properties.pathwayId || 0,
-    taskId: request.properties.taskId || 0,
-  };
-  const result = await processLineItem(lineItem, logger);
-  const newEntry = result.success ? { lineItemId: result.lineItemId, shortUrl: result.shortUrl } : {lineItemId: "", shortUrl: ""};
-  const saveSuccess = result.success ? await saveOrderMetafield(request.shopify_domain, request.properties.orderId, newEntry, logger) : false;
+  const lineItemIDs = request.properties.lineItemsIDs || "";
+  const lineItemsIDs = lineItemIDs.split(",").map((id: string) => id.trim()).filter((id: string) => id);
+  const lineItemQuantities = request.properties.lineItemQuantities || "";
+  const lineItemsQuantities = lineItemQuantities.split(",").map((id: string) => id.trim()).filter((id: string) => id);
+  const lineItemPics = request.properties.lineItemsPics || "";
+  const lineItemsPics = lineItemPics.split(",").map((id: string) => id.trim()).filter((id: string) => id);
+  const lineItemLongUrls = request.properties.lineItemLongUrls || "";
+  const lineItemsLongUrls = lineItemLongUrls.split(",").map((id: string) => id.trim()).filter((id: string) => id);
+
+  if (lineItemsIDs.length !== lineItemsQuantities.length || lineItemsIDs.length !== lineItemsLongUrls.length) {
+    logger.error("Line items IDs, quantities and URLs do not match in length");
+    return {
+      saveSuccess: false,
+      success: false,
+      lineItems: [{"id": "", "longURL": ""}],
+      orderUrls: "",
+    };
+  }
+  if (lineItemsIDs.length === 0) {
+    logger.warn("No line items found in request");
+    return {
+      saveSuccess: false,
+      success: false,
+      lineItems: [{"id": "", "longURL": ""}],
+      orderUrls: "",
+    };
+  }
+  logger.debug({ lineItemsIDs, lineItemsQuantities, lineItemsLongUrls, lineItemsPics }, "Line items to process");
+  const lineItems: [LineItem] = [{"id": "", "longURL": ""}]; // Initialize with a dummy item to avoid empty array issues
+  lineItems.shift(); // Remove the dummy item to start with an empty array
+  for (let i = 0; i < lineItemsIDs.length; i++) {
+     let lineItem: LineItem = {
+      id: lineItemsIDs[i],
+      quantity: parseInt(lineItemsQuantities[i]) || 1,
+      longURL: lineItemsLongUrls[i],
+      lineItemPic: lineItemsPics[i] || "",
+    }
+    lineItems.push(lineItem);
+  }
+  logger.debug({ lineItems }, "Line items to process");
+  const result = await processLineItems(lineItems, logger);
+  logger.debug({ result }, "Processed line items result");
+  const newEntry:any = [];
+  if (result.success) {
+    for (let i = 0; i < result.shortUrl.length; i++) {
+      newEntry.push({ lineItemId: result.lineItemId[i], shortUrl: result.shortUrl[i] });
+    };
+  }
+  const { saveSuccess, orderURLs } = result.success ? await saveOrderMetafield(request.shopify_domain, request.properties.orderId, newEntry, logger) : {saveSuccess: false,orderURLs:""};
   if (!saveSuccess) {
     logger.warn("Failed to save short URL mapping as order metafield");
   }
   return {
-    processingResult: result,
-    saveSuccess: saveSuccess 
+    saveSuccess: saveSuccess,
+    success: result.success,
+    lineItems: result.lineItems,
+    orderUrls: orderURLs
   }
 }
 
@@ -379,13 +421,12 @@ const route: RouteHandler = async ({ request, reply, logger }) => {
     const max = await processFlow(request.body, logger);
   
     // Return response with exact field names that match the Result type in schema
-    await reply.code(max.processingResult.success ? 200 : 400).send({
+    await reply.code(max.success ? 200 : 400).send({
       return_value: {
-        success: max.processingResult.success,
+        success: max.success,
         saved: max.saveSuccess,
-        shortUrl: max.processingResult.shortUrl || "",
-        lineItemId: max.processingResult.lineItemId || "",
-        errorMessage: max.processingResult.success ? "" : max.processingResult.message
+        lineItems: JSON.stringify(max.lineItems) || "",
+        orderURLs: max.orderUrls || "",
       }
     });
   } catch (error) {

@@ -29,7 +29,8 @@
     "shopify-api-node": "^3.14.2",
     "@iarna/toml": "^3.0.0",
     "jsonwebtoken": "^9.0.0",
-    "mailgun.js": "^12.0.1"
+    "mailgun.js": "^12.0.1",
+    "mailersend": "^2.6.0"
   },
   "devDependencies": {
     "@shopify/app-bridge-types": "^0.0.15",

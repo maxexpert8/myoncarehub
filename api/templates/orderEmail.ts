@@ -4,16 +4,17 @@
  */
 
 interface OrderItem {
-  title: string;
-  quantity: number;
-  image?: string;
+  id: string;
+  longURL: string;
   shortUrl: string;
+  quantity: number;
+  lineItemPic: string;
 }
 interface OrderEmailData {
   customerName: string;
   orderNumber: string;
   orderDate: string;
-  items: OrderItem[];
+  items: [OrderItem];
 }
 interface EmailTemplate {
   subject: string;
@@ -35,7 +36,7 @@ export const generateOrderEmailTemplate = (data: OrderEmailData): EmailTemplate 
         <td style="font-family: -apple-system,Helvetica,sans-serif; padding: 15px;"></td>
         <td style="font-family: -apple-system,Helvetica,sans-serif; width: 100%; padding: 15px;">
           <span style="font-size: 16px; font-weight: 600; line-height: 1.4; color: #555;">
-            <strong style="font-size: 16px; color: #555;">${item.title}</strong>
+            <strong style="font-size: 16px; color: #555;">${item.id}</strong>
           </span><br><br>
           <span style="font-size: 16px;">
             <span style="font-size: small;">Anzahl der Lizenzen:</span> ${item.quantity}
@@ -46,7 +47,7 @@ export const generateOrderEmailTemplate = (data: OrderEmailData): EmailTemplate 
           </span><br>
         </td>
         <td style="font-family: -apple-system,Helvetica,sans-serif; padding: 15px 0;" valign="middle">
-          <img src="${item.image}" alt="${item.title}" align="left" width="60" style="margin-right: 15px; border: 1px solid #e5e5e5;">
+          <img src="${item.lineItemPic}" alt="${item.id}" align="left" width="60" style="margin-right: 15px; border: 1px solid #e5e5e5;">
         </td>
       </tr>
     `).join('');

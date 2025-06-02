@@ -7,11 +7,11 @@ export interface ShopifyFlowActionInput {
     };
   };
   inputData: {
-    lineItemLongUrl?: string;
-    lineItemId?: string;
+    lineItemLongUrls?: string;
+    lineItemIds?: string;
     orderId?: string;
-    orderURLs?: any;
-    lineItemQuantity?: number;
+    lineItemsPics?: string;
+    lineItemQuantities?: string;
     patientId?: string;
     pathwayId?: string;
     taskId?: string;

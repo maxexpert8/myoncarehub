@@ -3,14 +3,11 @@ import type { ShopifyFlowActionInput, ShopifyFlowActionOutput } from './types';
 
 // Type Definitions
 interface UrlShortenerRequest {
-  url: string;
-  lineItemId: string;
+  urls: string;
+  lineItemIds: string;
   orderId: string;
-  orderURLs: string;
-  lineItemQuantity: number;
-  patientId?: string;
-  pathwayId?: string;
-  taskId?: string;
+  lineItemQuantities?: string;
+  lineItemsPics?: string;
   source: 'shopify_flow';
   shopDomain: string;
   shopId: string;
@@ -142,7 +139,7 @@ export default async function (input: ShopifyFlowActionInput): Promise<ShopifyFl
         success: false,
         saved: false,
         errors: validationErrors,
-        lineItemId: input.inputData.lineItemId
+        lineItemId: input.inputData.lineItemIds
       }
     };
   }
@@ -150,14 +147,11 @@ export default async function (input: ShopifyFlowActionInput): Promise<ShopifyFl
   try {
     // Prepare request payload
     const payload: UrlShortenerRequest = {
-      url: input.inputData.lineItemLongUrl!,
-      lineItemId: input.inputData.lineItemId!,
+      urls: input.inputData.lineItemLongUrls!,
+      lineItemIds: input.inputData.lineItemIds!,
+      lineItemsPics: input.inputData.lineItemsPics!,
       orderId: input.inputData.orderId!,
-      orderURLs: input.inputData.orderURLs!,
-      lineItemQuantity: input.inputData.lineItemQuantity || 1,
-      patientId: input.inputData.patientId,
-      pathwayId: input.inputData.pathwayId,
-      taskId: input.inputData.taskId,
+      lineItemQuantities: input.inputData.lineItemQuantities ,
       source: 'shopify_flow',
       shopDomain: input.shopify.shop.domain,
       shopId: input.shopify.shop.id
@@ -180,7 +174,7 @@ export default async function (input: ShopifyFlowActionInput): Promise<ShopifyFl
           success: false,
           saved: false,
           errors: [apiError],
-          lineItemId: input.inputData.lineItemId
+          lineItemId: input.inputData.lineItemIds
         }
       };
     }
@@ -191,7 +185,7 @@ export default async function (input: ShopifyFlowActionInput): Promise<ShopifyFl
         success: true,
         saved: true,
         shortUrl: result.shortUrl,
-        lineItemId: input.inputData.lineItemId
+        lineItemId: input.inputData.lineItemIds
       }
     };
 
@@ -204,7 +198,7 @@ export default async function (input: ShopifyFlowActionInput): Promise<ShopifyFl
         success: false,
         saved: false,
         errorMessage: `Failed to shorten URL: ${errorMessage}`,
-        lineItemId: input.inputData.lineItemId,
+        lineItemId: input.inputData.lineItemIds,
         errors: [createError(
           'PROCESSING_ERROR',
           errorMessage
