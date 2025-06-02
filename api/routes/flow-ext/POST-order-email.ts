@@ -1,6 +1,6 @@
 import { RouteHandler } from "gadget-server";
 import { generateOrderEmailTemplate, formatDate, formatCurrency } from "../../templates/orderEmail";
-import Brevo from "@getbrevo/brevo";
+import { TransactionalEmailsApi, TransactionalEmailsApiApiKeys } from "@getbrevo/brevo";
 
 // Custom error classes for better error handling
 class ValidationError extends Error {
@@ -81,11 +81,6 @@ async function validateInputs(body: any, connections: any) {
   if (!shopId) {
     throw new AuthenticationError("No active shop session found");
   }
-  
-  // Validate configuration
-  if (!process.env.BREVO_API_TOKEN) {
-    throw new ConfigurationError("Brevo API token is not configured");
-  }
   return {
     orderId :body.properties.id,
     shopId,
@@ -163,34 +158,30 @@ async function getCustomerData(api: any, order: any, logger: any) {
     };
 }
 async function sendEmail(customerEmail: string, emailSubject: string, order: any, emailContent: string, logger: any) {
-  const brevoApiKey = process.env.BREVO_API_KEY;
-  if (!brevoApiKey) {
+  if (!process.env.BREVO_API_TOKEN) {
     throw new ConfigurationError("Brevo API key is not configured");
   }
 
-  const brevo = new Brevo.TransactionalEmailsApi();
-  brevo.setApiKey(Brevo.TransactionalEmailsApiApiKeys.apiKey, brevoApiKey);
-
+  const brevo = new TransactionalEmailsApi();
+  const brevoApiKey = process.env.BREVO_API_TOKEN;
   const emailParams = {
     sender: {
       name: "MyOnClinic Shop",
       email: "marketing@myon.clinic",
     },
-    to: [
-      {
-        email: customerEmail,
-      },
-    ],
+    to: [{email: customerEmail,},],
     subject: emailSubject,
     htmlContent: emailContent,
   };
 
+  brevo.setApiKey(TransactionalEmailsApiApiKeys.apiKey, brevoApiKey);
   logger.info({ emailParams, orderName: order.name }, "Sending order email via Brevo");
 
   try {
     const response = await brevo.sendTransacEmail(emailParams);
-    logger.info({ messageId: response.body.messageId, response }, "Email sent successfully via Brevo");
-    return response;
+    const messageId = response.body?.messageId || 'unknown';
+    logger.info({ messageId, response }, "Email sent successfully via Brevo");
+    return { messageId, ...response };
   } catch (error: any) {
     logger.error({ error }, "Error from Brevo API");
     throw new MailerError(
@@ -215,7 +206,7 @@ const route: RouteHandler = async ({request, reply, api, logger, connections}) =
     return await reply.send({
       success: true,
       message: `Order email sent to ${customerEmail}`,
-      messageId: emailResult.body.messageId,
+      messageId: emailResult.messageId,
     });
     
   } catch (error) {
@@ -252,7 +243,7 @@ const route: RouteHandler = async ({request, reply, api, logger, connections}) =
         error: error instanceof MailerError ? error.message : "Unknown error",
         statusCode: error instanceof MailerError ? error.statusCode : "Unknown status code",
         details: error instanceof MailerError ? error.details : "Unknown Error Details",
-      }, "Brevo error in order email request");
+      }, "Mailgun error in order email request");
       return await reply.code(502).send({
         success: false,
         errorType: "mailer_error",
