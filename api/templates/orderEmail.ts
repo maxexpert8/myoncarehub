@@ -171,7 +171,7 @@ export const generateOrderEmailTemplate = (data: OrderEmailData): EmailTemplate 
                                       style="display: inline-block; min-width: 90px; font-size: 16px;">${data.orderDate}</span>
                                     <br>
                                     <strong style="font-size: 16px; color: #555;">Auftragsnummer:</strong> <span
-                                      style="display: inline-block; min-width: 90px; font-size: 16px;">#${data.orderNumber}</span>
+                                      style="display: inline-block; min-width: 90px; font-size: 16px;">${data.orderNumber}</span>
                                   </p>
                                   <p style="color: #777; line-height: 150%; font-size: 16px; margin: 15px 0 0;">Hallo ${data.customerName},
                                   </p>
