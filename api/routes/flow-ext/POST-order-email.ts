@@ -133,7 +133,7 @@ async function checkEmailDeduplication(api: any, orderId: string, shopId: string
       filter: {
         orderId: { equals: orderId },
         emailType: { equals: "order_confirmation" },
-        shop: { equals: shopId }
+        shopId: { equals: shopId } 
       }
     });
     
@@ -147,6 +147,11 @@ async function checkEmailDeduplication(api: any, orderId: string, shopId: string
     if (error instanceof DuplicationError) {
       throw error;
     }
+    if (error.message.includes("Record Not Found Error") || error.message.includes("no data at emailLogs")) {
+      logger.warn({ error: error.message, orderId }, "Unable to check email deduplication due to access issue, proceeding with send");
+      return; // Allow the email to proceed without deduplication check
+    }
+    
     logger.error({ error: error.message, orderId }, "Error checking email deduplication");
     throw new Error(`Failed to check email deduplication: ${error.message}`);
   }
@@ -259,6 +264,14 @@ const route: RouteHandler = async ({request, reply, api, logger, connections}) =
       success: true,
       message: `Order email sent to ${customerEmail}`,
       messageId: emailResult.messageId,
+      __flow: {
+        status: "success",
+        outputs: {
+          success: true,
+          message: customerEmail,
+          messageId: emailResult.messageId
+        }
+      }
     });
     
   } catch (error) {
@@ -269,6 +282,11 @@ const route: RouteHandler = async ({request, reply, api, logger, connections}) =
         success: false,
         errorType: "validation_error",
         error: error instanceof ValidationError ? error.message : "Unknown error",
+        __flow: {
+          status: "failure", // This will make the flow show as failed
+          error: error instanceof Error ? error.message : "Unknown error",
+          errorType: error instanceof Error ? error.name : "UnknownError"
+        }
       });
     }
     
@@ -278,6 +296,11 @@ const route: RouteHandler = async ({request, reply, api, logger, connections}) =
         success: false,
         errorType: "authentication_error",
         error: error instanceof AuthenticationError ? error.message : "Unknown error",
+        __flow: {
+          status: "failure", // This will make the flow show as failed
+          error: error instanceof Error ? error.message : "Unknown error",
+          errorType: error instanceof Error ? error.name : "UnknownError"
+        }
       });
     }
     
@@ -287,6 +310,11 @@ const route: RouteHandler = async ({request, reply, api, logger, connections}) =
         success: false,
         errorType: "shopify_error",
         error: error instanceof ShopifyError ? error.message : "Unknown error",
+        __flow: {
+          status: "failure", // This will make the flow show as failed
+          error: error instanceof Error ? error.message : "Unknown error",
+          errorType: error instanceof Error ? error.name : "UnknownError"
+        }
       });
     }
     
@@ -302,6 +330,11 @@ const route: RouteHandler = async ({request, reply, api, logger, connections}) =
         error: error instanceof MailerError ? error.message : "Unknown error",
         statusCode: error instanceof MailerError ? error.statusCode : "Unknown status code",
         details: error instanceof MailerError ? error.details : "Unknown Error Details",
+        __flow: {
+          status: "failure", // This will make the flow show as failed
+          error: error instanceof Error ? error.message : "Unknown error",
+          errorType: error instanceof Error ? error.name : "UnknownError"
+        }
       });
     }
     
@@ -310,7 +343,12 @@ const route: RouteHandler = async ({request, reply, api, logger, connections}) =
       return await reply.code(500).send({
         success: false,
         errorType: "configuration_error",
-        error: error instanceof ConfigurationError ? error.message : "Unknown error"
+        error: error instanceof ConfigurationError ? error.message : "Unknown error",
+        __flow: {
+          status: "failure", // This will make the flow show as failed
+          error: error instanceof Error ? error.message : "Unknown error",
+          errorType: error instanceof Error ? error.name : "UnknownError"
+        }
       });
     }
     
@@ -319,7 +357,12 @@ const route: RouteHandler = async ({request, reply, api, logger, connections}) =
       return await reply.code(409).send({
         success: false,
         errorType: "duplication_error",
-        error: error instanceof DuplicationError ? error.message : "Unknown error"
+        error: error instanceof DuplicationError ? error.message : "Unknown error",
+        __flow: {
+          status: "failure", // This will make the flow show as failed
+          error: error instanceof Error ? error.message : "Unknown error",
+          errorType: error instanceof Error ? error.name : "UnknownError"
+      }
       });
     }
     
@@ -333,7 +376,12 @@ const route: RouteHandler = async ({request, reply, api, logger, connections}) =
       success: false,
       errorType: "server_error",
       error: "Internal server error",
-      message: error instanceof Error ? error.message : "Unknown error"
+      message: error instanceof Error ? error.message : "Unknown error",
+      __flow: {
+        status: "failure", // This will make the flow show as failed
+        error: error instanceof Error ? error.message : "Unknown error",
+        errorType: error instanceof Error ? error.name : "UnknownError"
+      }
     });
   }
 };
