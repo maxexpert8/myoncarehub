@@ -37,6 +37,12 @@ class ConfigurationError extends Error {
     this.name = 'ConfigurationError';
   }
 }
+class DuplicationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DuplicationError';
+  }
+}
 
 interface ShopifyOrder {
   id: string;
@@ -121,6 +127,30 @@ async function getOrder(shopId: string, orderId: string, api:any, logger: any) {
       orderDate: formatDate(order.processedAt || order.createdAt)
     };
 }
+async function checkEmailDeduplication(api: any, orderId: string, shopId: string, logger: any) {
+  try {
+    const existing = await api.emailLog.findFirst({
+      filter: {
+        orderId: { equals: orderId },
+        emailType: { equals: "order_confirmation" },
+        shop: { equals: shopId }
+      }
+    });
+    
+    if (existing) {
+      logger.info({ orderId, existingEmailId: existing.id }, "Email already sent for this order");
+      throw new DuplicationError(`Order confirmation email already sent for order ${orderId}`);
+    }
+    
+    logger.debug({ orderId }, "No duplicate email found, proceeding with send");
+  } catch (error: any) {
+    if (error instanceof DuplicationError) {
+      throw error;
+    }
+    logger.error({ error: error.message, orderId }, "Error checking email deduplication");
+    throw new Error(`Failed to check email deduplication: ${error.message}`);
+  }
+}
 async function getCustomerData(api: any, order: any, logger: any) {
   let customer: any = null;
     if (order.customerId) {
@@ -191,19 +221,41 @@ async function sendEmail(customerEmail: string, emailSubject: string, order: any
     );
   }
 }
-const route: RouteHandler = async ({request, reply, api, logger, connections}) => {
-    logger.debug({ request }, "Received order email request");
-    logger.debug({ connections }, "Received order email Connections");
-    logger.debug({ api }, "Received order email api client");
+async function logEmailSend(api: any, orderId: string, customerEmail: string, messageId: string, shopId: string, logger: any) {
   try {
-    logger.debug({ requestBody: request.body }, "Validating order email request body");
+    const emailLogRecord = await api.emailLog.create({
+      orderId: orderId,
+      emailType: "order_confirmation",
+      emailAddress: customerEmail,
+      sentAt: new Date().toISOString(),
+      messageId: messageId,
+      shop: { _link: shopId },
+      status: "sent"
+    });
+    
+    logger.info({ emailLogId: emailLogRecord.id, orderId, messageId }, "Email send logged successfully");
+    return emailLogRecord;
+  } catch (error: any) {
+    logger.error({ error: error.message, orderId, messageId }, "Failed to log email send");
+    // Don't throw here as the email was sent successfully, just log the error
+  }
+}
+const route: RouteHandler = async ({request, reply, api, logger, connections}) => {
+  try {
     const { orderId, shopId, items } = await validateInputs(request.body, connections);
+    
+    // Check for email duplication before proceeding
+    await checkEmailDeduplication(api, orderId, shopId, logger);
+    
     const { orderNumber, order, orderDate } = await getOrder(shopId, orderId, api, logger);   
     const { customerEmail, customerName } = await getCustomerData(api, order, logger); 
     const { subject: emailSubject, html: emailContent } = generateOrderEmailTemplate({orderNumber,orderDate,items,customerName,});
     const emailResult = await sendEmail(customerEmail, emailSubject, order, emailContent, logger);
 
-    return await reply.send({
+    // Log the successful email send
+    await logEmailSend(api, orderId, customerEmail, emailResult.messageId, shopId, logger);
+
+    return await reply.code(200).send({
       success: true,
       message: `Order email sent to ${customerEmail}`,
       messageId: emailResult.messageId,
@@ -243,7 +295,7 @@ const route: RouteHandler = async ({request, reply, api, logger, connections}) =
         error: error instanceof MailerError ? error.message : "Unknown error",
         statusCode: error instanceof MailerError ? error.statusCode : "Unknown status code",
         details: error instanceof MailerError ? error.details : "Unknown Error Details",
-      }, "Mailgun error in order email request");
+      }, "Mailer error in order email request");
       return await reply.code(502).send({
         success: false,
         errorType: "mailer_error",
@@ -259,6 +311,15 @@ const route: RouteHandler = async ({request, reply, api, logger, connections}) =
         success: false,
         errorType: "configuration_error",
         error: error instanceof ConfigurationError ? error.message : "Unknown error"
+      });
+    }
+    
+    if (error instanceof DuplicationError) {
+      logger.warn({ error: error instanceof DuplicationError ? error.message : "Unknown error" }, "Duplicate email request");
+      return await reply.code(409).send({
+        success: false,
+        errorType: "duplication_error",
+        error: error instanceof DuplicationError ? error.message : "Unknown error"
       });
     }
     
