@@ -11,8 +11,28 @@ export const permissions: GadgetPermissions = {
   roles: {
     "shopify-app-users": {
       storageKey: "Role-Shopify-App",
+      default: {
+        read: true,
+        action: true,
+      },
       models: {
+        customerOrderHistory: {
+          read: true,
+          actions: {
+            create: true,
+            delete: true,
+            update: true,
+          },
+        },
         emailLog: {
+          read: true,
+          actions: {
+            create: true,
+            delete: true,
+            update: true,
+          },
+        },
+        orderFulfillmentStatus: {
           read: true,
           actions: {
             create: true,
@@ -24,6 +44,16 @@ export const permissions: GadgetPermissions = {
           read: {
             filter:
               "accessControl/filters/shopify/shopifyCustomer.gelly",
+          },
+          actions: {
+            create: true,
+            delete: true,
+            update: true,
+          },
+        },
+        shopifyFile: {
+          read: {
+            filter: "accessControl/filters/shopify/shopifyFile.gelly",
           },
           actions: {
             create: true,
@@ -53,6 +83,39 @@ export const permissions: GadgetPermissions = {
             update: true,
           },
         },
+        shopifyOrderLineItem: {
+          read: {
+            filter:
+              "accessControl/filters/shopify/shopifyOrderLineItem.gelly",
+          },
+          actions: {
+            create: true,
+            delete: true,
+            update: true,
+          },
+        },
+        shopifyProduct: {
+          read: {
+            filter:
+              "accessControl/filters/shopify/shopifyProduct.gelly",
+          },
+          actions: {
+            create: true,
+            delete: true,
+            update: true,
+          },
+        },
+        shopifyProductMedia: {
+          read: {
+            filter:
+              "accessControl/filters/shopify/shopifyProductMedia.gelly",
+          },
+          actions: {
+            create: true,
+            delete: true,
+            update: true,
+          },
+        },
         shopifyShop: {
           read: {
             filter: "accessControl/filters/shopify/shopifyShop.gelly",
@@ -75,6 +138,11 @@ export const permissions: GadgetPermissions = {
             run: true,
           },
         },
+      },
+      actions: {
+        handleOrderWebhook: true,
+        scheduledShopifySync: true,
+        writeToShopify: true,
       },
     },
     unauthenticated: {

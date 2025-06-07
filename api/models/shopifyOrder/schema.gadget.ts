@@ -61,6 +61,7 @@ export const schema: GadgetModel = {
       "hasTimelineComment",
       "landingSite",
       "legacyResourceId",
+      "lineItems",
       "merchantEditable",
       "merchantEditableErrors",
       "merchantOfRecordAppId",
